@@ -1,13 +1,12 @@
 (ns rolly.core
-  (:require
-   [gniazdo.core :as ws]
-   [clojure.string :as string]
-   [clojure.edn :as edn]
-   [clj-http.client :as client]
-   [org.httpkit.server :as httpkit]
-   [cheshire.core :as json]
-   [clojure.java.io :as io]
-   [com.hypirion.clj-xchart :as chart])
+  (:require [gniazdo.core :as ws]
+            [clojure.string :as string]
+            [clojure.edn :as edn]
+            [clj-http.client :as client]
+            [org.httpkit.server :as httpkit]
+            [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [com.hypirion.clj-xchart :as chart])
   (:import [org.eclipse.jetty.util.ssl SslContextFactory]
            [org.eclipse.jetty.websocket.client WebSocketClient]
            [java.math BigInteger]
@@ -32,51 +31,9 @@
         :as :json})
       :body))
 
-(comment
- (let [{:keys [access_token]} token]
-   (prn access_token)
-   (client/get (str discord-api-endpoint "/users/@me")
-               {:headers {"Authorization" access_token}
-                :form-params {:token access_token}
-                :as :json})))
-
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& args]
-  (println "Hello, World!"))
-
-
-
-(def token (:access_token (get-token) ))
-
-
-(comment
-  (defn d100 [type data]
-    (discord/answer-command data "!d100" (str "Here you are a random number between 1 and 100: " (+ (rand-int 100) 1)))))
-
-(defn log-event [type data] 
-  (println "\nReceived: " type " -> " data))
-
-(comment
-  (def the-future
-    (future
-      (discord/connect {:token token 
-                        :log-events? true
-                        :functions {"MESSAGE_CREATE" [d100]
-                                    "MESSAGE_UPDATE" [d100]
-                                        ; "ALL_OTHER" [log-event]
-                                    }})))
-
-
-  (future-cancel the-future)
-
-  (future-done? the-future))
-
-
-
-(defonce all-the-futures (atom []))
-
+(def token (:access_token (get-token)))
 (defonce my-random (Random. (System/nanoTime)))
+
 (defn chart-image-bytes
   [w h chart]
   (let [img (BufferedImage. w h BufferedImage/TYPE_INT_RGB)
@@ -140,18 +97,6 @@
                                        :value v
                                        :inline? true})})))
 
-(comment
-  (let [channel-id "138891988186431489"]
-    (map->embed! channel-id {:a :b 4 5})
-    #_(post-embed channel-id {:title "title"
-                              :description "desc"
-                              :color 11409407
-                              :fields [{:name "myname"
-                                        :value "myvalue"
-                                        :inline? true}]}))
-  (send-message "138891988186431489" "xD")
-  (post-message-with-file "138891988186431489" "xD" "chart.png" (make-chart 444 444)))
-
 (defonce all-received-messages (atom []))
 
 (defn dispatch-event
@@ -186,15 +131,14 @@
                              (send-message channel_id (format "true average roll of %sd%s = `%s`" nrolls dsize average-total-roll)))))
       nil)))
 
-(comment
-  (do (.stop the-client)
-      (run! future-cancel @all-the-futures))
-  (println "\n\n\n")
+(defn -main
+  "I don't do a whole lot ... yet."
+  [& args]
   (let [{gateway :url} (:body (client/get
                                "https://discordapp.com/api/gateway"
                                {:headers {:authorization token}
                                 :as :json}))
-        
+
         ws-client (WebSocketClient. (SslContextFactory.))
         heartbeat-interval (promise)
         msg-seq-num (atom nil)
@@ -206,8 +150,8 @@
                          :client ws-client
                          :on-receive (fn [r]
                                        (let [data (json/parse-string r keyword)]
-                                         #_(println "RECEIVED " (count r)) 
-                                         (swap! all-received-messages conj data )
+                                         #_(println "RECEIVED " (count r))
+                                         #_(swap! all-received-messages conj data)
                                          (when-let [i (-> data :d :heartbeat_interval)]
                                            (deliver heartbeat-interval i))
                                          (when-let [s (-> data :s)]
@@ -226,25 +170,19 @@
                                #_(prn 'sending-heartbeat)
                                (ws/send-msg conn (json/generate-string {:op 1 :d @msg-seq-num}))
                                (Thread/sleep @heartbeat-interval)))]
-      (swap! all-the-futures conj heartbeat-thread)
       ;; send identify
       (deref heartbeat-interval)
-      (Thread/sleep 1111)
+      (Thread/sleep 111)
       (prn 'identifying!!)
-      (let [json-string (json/generate-string
-                         {:op 2
-                          :d {"token" (:bot-token config)
-                              "properties" {"$os" "hehe"
-                                            "$browser" "lol"
-                                            "$device" "xD"
-                                            "$referrer" ""
-                                            "$referring_domain" ""}
-                              "presence" {"game" {"name" "no way this works"
-                                                  "type" 0}}}}
-                         {:pretty true})
-            _  (println "SENDING\n" json-string)
-            result (ws/send-msg conn json-string)]
-        (prn 'send-result result)))))
-
-
-
+      (ws/send-msg conn
+                   (json/generate-string
+                    {:op 2
+                     :d {"token" (:bot-token config)
+                         "properties" {"$os" "hehe"
+                                       "$browser" "lol"
+                                       "$device" "xD"
+                                       "$referrer" ""
+                                       "$referring_domain" ""}
+                         "presence" {"game" {"name" "no way this works"
+                                             "type" 0}}}}
+                    {:pretty true})))))
