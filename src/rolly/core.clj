@@ -14,7 +14,8 @@
            [javax.imageio ImageIO]
            [java.awt Graphics2D]
            [java.io ByteArrayOutputStream ByteArrayInputStream]
-           [java.util Random])
+           [java.util Date Random]
+           [java.util.zip Inflater])
   (:gen-class))
 
 (def discord-api-endpoint "https://discordapp.com/api/v6")
@@ -102,14 +103,13 @@
 (defn dispatch-event
   [{:keys [d t s op]}]
   (when (zero? op)
-    #_(prn 'DISPATCHY op t)
     (case t
       "MESSAGE_CREATE" (let [{:keys [channel_id content]} d]
-                         (when-let [[_ maxroll] (re-find #"\!bigroll\s+(\d+)" content)]
-                           ;; TODO FIX OFF BY ONE LOL
+                         (when-let [[_ ^String maxroll] (re-find #"\!bigroll\s+(\d+)" content)]
                            (let [bound (BigInteger. maxroll)
-                                 rolled (-> (BigInteger. (.bitLength bound) my-random)
-                                            (.mod bound))]
+                                 rolled (-> (BigInteger. (.bitLength bound) ^Random my-random)
+                                            (.mod bound)
+                                            (.add BigInteger/ONE))]
                              (send-message channel_id (str "rolled " rolled))))
                          (when-let [[_ s_nrolls s_dsize] (re-find #"\!roll\s(\d+)\s*d\s*(\d+)$" content)]
                            (let [nrolls (Integer/parseInt s_nrolls)
@@ -131,58 +131,89 @@
                              (send-message channel_id (format "true average roll of %sd%s = `%s`" nrolls dsize average-total-roll)))))
       nil)))
 
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& args]
+(defn get-gateway-url
+  []
   (let [{gateway :url} (:body (client/get
                                "https://discordapp.com/api/gateway"
                                {:headers {:authorization token}
-                                :as :json}))
+                                :as :json}))]
+    (str gateway "?v=6&encoding=json")))
 
-        ws-client (WebSocketClient. (SslContextFactory.))
-        heartbeat-interval (promise)
+(defn connect
+  [dispatch-fn]
+  (let [heartbeat-interval (promise)
         msg-seq-num (atom nil)
-        _ (.setMaxTextMessageSize (.getPolicy ws-client) (* 64 1024))
-        _ (.start ws-client)
-        conn-url (str gateway "?v=6&encoding=json")
-        _ (prn 'connecting-to conn-url)
-        conn (ws/connect conn-url
-                         :client ws-client
-                         :on-receive (fn [r]
-                                       (let [data (json/parse-string r keyword)]
-                                         #_(println "RECEIVED " (count r))
-                                         #_(swap! all-received-messages conj data)
-                                         (when-let [i (-> data :d :heartbeat_interval)]
-                                           (deliver heartbeat-interval i))
-                                         (when-let [s (-> data :s)]
-                                           (reset! msg-seq-num s))
-                                         (try
-                                           (#'dispatch-event data)
-                                           (catch Throwable e
-                                             (println "!!! exception " (.getMessage e))
-                                             (.printStackTrace e))))))]
+        last-hb-time (atom nil)
+        last-ack-time (atom nil)
+        running? (atom true)
+        inflate-buffer (byte-array (* 128 1024))
+        inflater (Inflater.)
+        process-msg (fn [msg]
+                      (printf "[%s] %s\n" (Date.) (dissoc msg :d))
+                      (when-let [i (-> msg :d :heartbeat_interval)]
+                        (deliver heartbeat-interval i))
+                      (when-let [s (-> msg :s)]
+                        (reset! msg-seq-num s))
+                      (when (= 11 (:op msg))
+                        (reset! last-ack-time (System/currentTimeMillis)))
+                      (try (dispatch-fn msg)
+                           (catch Throwable e (.printStackTrace e))))
+        conn (ws/connect (get-gateway-url)
+                         :client (doto (WebSocketClient. (SslContextFactory.))
+                                   (.start))
+                         :on-binary (fn [b off len]
+                                      (doto inflater
+                                        (.reset)
+                                        (.setInput b off len))
+                                      (let [nbytes (.inflate inflater inflate-buffer)]
+                                        (-> (ByteArrayInputStream. inflate-buffer 0 nbytes)
+                                            (io/reader)
+                                            (json/parse-stream keyword)
+                                            (process-msg))))
+                         :on-error (fn [e]
+                                     (prn 'error e))
+                         :on-close (fn [status reason]
+                                     (prn 'closed! {:status status :reason reason}))
+                         :on-receive (fn [s]
+                                       (process-msg (json/parse-string s keyword))))
+        do-close (fn []
+                   (reset! running? false)
+                   (ws/close conn))
+        heartbeat-thread (future
+                           @heartbeat-interval
+                           (while @running?
+                             (ws/send-msg conn (json/generate-string {:op 1 :d @msg-seq-num}))
+                             (reset! last-hb-time (System/currentTimeMillis))
+                             (Thread/sleep @heartbeat-interval)))
+        monitor (future
+                  @heartbeat-interval
+                  (while (nil? @last-ack-time)
+                    (Thread/sleep 111))
+                  (while @running?
+                    (when (< @last-ack-time @last-hb-time)
+                      (println "ack timeout - closing!")
+                      (do-close))
+                    (Thread/sleep 4444)))]
+    @heartbeat-interval
+    (ws/send-msg conn
+                 (json/generate-string
+                  {:op 2
+                   :d {"token" (:bot-token config)
+                       "compress" true
+                       "properties" {"$os" "hehe"
+                                     "$browser" "lol"
+                                     "$device" "xD"
+                                     "$referrer" ""
+                                     "$referring_domain" ""}
+                       "presence" {"game" {"name" "no way this works"
+                                           "type" 0}}}}))
+    {:conn conn :running? running? :close do-close}))
 
-    (def the-client ws-client)
-    (let [heartbeat-thread (future
-                             (println "waiting for interval...")
-                             (prn 'interval-is @heartbeat-interval)
-                             (while true
-                               #_(prn 'sending-heartbeat)
-                               (ws/send-msg conn (json/generate-string {:op 1 :d @msg-seq-num}))
-                               (Thread/sleep @heartbeat-interval)))]
-      ;; send identify
-      (deref heartbeat-interval)
-      (Thread/sleep 111)
-      (prn 'identifying!!)
-      (ws/send-msg conn
-                   (json/generate-string
-                    {:op 2
-                     :d {"token" (:bot-token config)
-                         "properties" {"$os" "hehe"
-                                       "$browser" "lol"
-                                       "$device" "xD"
-                                       "$referrer" ""
-                                       "$referring_domain" ""}
-                         "presence" {"game" {"name" "no way this works"
-                                             "type" 0}}}}
-                    {:pretty true})))))
+(defn -main
+  [& args]
+  (def the-client (connect #'dispatch-event)))
+
+(comment
+  (def my-client (connect #'dispatch-event))
+  (deref (:running? my-client))
+  ((:close my-client)))
