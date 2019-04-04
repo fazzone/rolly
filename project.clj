@@ -10,7 +10,8 @@
                  [org.clojure/data.json "0.2.6"]
                  [stylefruits/gniazdo "1.0.0"]
                  [com.cemerick/pomegranate "1.1.0"]
-                 [clj-http "3.9.1"]]
+                 [clj-http "3.9.1"]
+                 [org.slf4j/slf4j-simple "1.7.26"]]
   :plugins [[cider/cider-nrepl "0.21.1"]]
   :main ^:skip-aot rolly.core
   :target-path "target/%s"
