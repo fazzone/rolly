@@ -32,7 +32,6 @@
         :as :json})
       :body))
 
-(def token (:access_token (get-token)))
 (defonce my-random (Random. (System/nanoTime)))
 
 (defn chart-image-bytes
@@ -133,9 +132,10 @@
 
 (defn get-gateway-url
   []
-  (let [{gateway :url} (:body (client/get
+  (let [{:keys [access_token]} (get-token)
+        {gateway :url} (:body (client/get
                                "https://discordapp.com/api/gateway"
-                               {:headers {:authorization token}
+                               {:headers {:authorization access_token}
                                 :as :json}))]
     (str gateway "?v=6&encoding=json")))
 
@@ -149,7 +149,8 @@
         inflate-buffer (byte-array (* 128 1024))
         inflater (Inflater.)
         process-msg (fn [msg]
-                      (printf "[%s] %s\n" (Date.) (dissoc msg :d))
+                      (println (format "[%s] %s" (Date.) (dissoc msg :d)))
+                      (flush)
                       (when-let [i (-> msg :d :heartbeat_interval)]
                         (deliver heartbeat-interval i))
                       (when-let [s (-> msg :s)]
@@ -209,9 +210,13 @@
                                            "type" 0}}}}))
     {:conn conn :running? running? :close do-close}))
 
+(def the-client (atom nil))
+
 (defn -main
   [& args]
-  (def the-client (connect #'dispatch-event)))
+  (reset! the-client (connect #'dispatch-event))
+  (while true
+    (Thread/sleep 999)))
 
 (comment
   (def my-client (connect #'dispatch-event))
