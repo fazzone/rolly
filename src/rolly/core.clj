@@ -192,8 +192,8 @@
                   (while (nil? @last-ack-time)
                     (Thread/sleep 111))
                   (while @running?
-                    (when (< @last-ack-time @last-hb-time)
-                      (println "ack timeout - closing!")
+                    (when (< (+ 7777 @last-ack-time) @last-hb-time)
+                      (println (format "[%s] ack timeout - closing!" (Date.)))
                       (do-close))
                     (Thread/sleep 4444)))]
     @heartbeat-interval
