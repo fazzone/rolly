@@ -161,29 +161,32 @@
                            (catch Throwable e (.printStackTrace e)))
                       (spit "all-messages" (str (pr-str msg) "\n") :append true))
         conn (ws/connect (get-gateway-url)
-                         :client (doto (WebSocketClient. (SslContextFactory.))
-                                   (.start))
-                         :on-binary (fn [b off len]
-                                      (doto inflater
-                                        (.reset)
-                                        (.setInput b off len))
-                                      (let [nbytes (.inflate inflater inflate-buffer)]
-                                        (-> (ByteArrayInputStream. inflate-buffer 0 nbytes)
-                                            (io/reader)
-                                            (json/parse-stream keyword)
-                                            (process-msg))))
-                         :on-error (fn [e]
-                                     (prn 'error e))
-                         :on-close (fn [status reason]
-                                     (prn 'closed! {:status status :reason reason}))
-                         :on-receive (fn [s]
-                                       (process-msg (json/parse-string s keyword))))
+               :client (doto (WebSocketClient. (SslContextFactory.))
+                         (.start))
+               :on-binary (fn [b off len]
+                            (doto inflater
+                              (.reset)
+                              (.setInput b off len))
+                            (let [nbytes (.inflate inflater inflate-buffer)]
+                              (-> (ByteArrayInputStream. inflate-buffer 0 nbytes)
+                                (io/reader)
+                                (json/parse-stream keyword)
+                                (process-msg))))
+               :on-error (fn [e]
+                           (prn 'error e))
+               :on-close (fn [status reason]
+                           (prn 'closed! {:status status :reason reason}))
+               :on-receive (fn [s]
+                             (process-msg (json/parse-string s keyword))))
+        dc-promise (promise)
         do-close (fn []
                    (reset! running? false)
-                   (ws/close conn))
+                   (ws/close conn)
+                   (deliver dc-promise :closed))
         heartbeat-thread (future
                            @heartbeat-interval
                            (while @running?
+                             (println (format "[%s] sending heartbeat" (Date.)))
                              (ws/send-msg conn (json/generate-string {:op 1 :d @msg-seq-num}))
                              (reset! last-hb-time (System/currentTimeMillis))
                              (Thread/sleep @heartbeat-interval)))
@@ -209,15 +212,18 @@
                                      "$referring_domain" ""}
                        "presence" {"game" {"name" "no way this works"
                                            "type" 0}}}}))
-    {:conn conn :running? running? :close do-close}))
+    {:conn conn
+     :running? running?
+     :close do-close
+     :dc-promise dc-promise}))
 
 (def the-client (atom nil))
 
 (defn -main
   [& args]
-  (reset! the-client (connect #'dispatch-event))
   (while true
-    (Thread/sleep 999)))
+    (let [{:keys [dc-promise] :as client} (connect #'dispatch-event)]
+      (deref dc-promise))))
 
 (comment
   (def my-client (connect #'dispatch-event))
