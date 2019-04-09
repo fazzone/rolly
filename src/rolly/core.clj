@@ -160,6 +160,7 @@
                       (try (dispatch-fn msg)
                            (catch Throwable e (.printStackTrace e)))
                       (spit "all-messages" (str (pr-str msg) "\n") :append true))
+        dc-promise (promise)
         conn (ws/connect (get-gateway-url)
                :client (doto (WebSocketClient. (SslContextFactory.))
                          (.start))
@@ -175,14 +176,13 @@
                :on-error (fn [e]
                            (prn 'error e))
                :on-close (fn [status reason]
-                           (prn 'closed! {:status status :reason reason}))
+                           (prn 'closed! {:status status :reason reason})
+                           (deliver dc-promise :closed))
                :on-receive (fn [s]
                              (process-msg (json/parse-string s keyword))))
-        dc-promise (promise)
         do-close (fn []
                    (reset! running? false)
-                   (ws/close conn)
-                   (deliver dc-promise :closed))
+                   (ws/close conn))
         heartbeat-thread (future
                            @heartbeat-interval
                            (while @running?
@@ -195,7 +195,7 @@
                   (while (nil? @last-ack-time)
                     (Thread/sleep 111))
                   (while @running?
-                    (when (< (+ 7777 @last-ack-time) @last-hb-time)
+                    (when (< @last-ack-time @last-hb-time)
                       (println (format "[%s] ack timeout - closing!" (Date.)))
                       (do-close))
                     (Thread/sleep 4444)))]
