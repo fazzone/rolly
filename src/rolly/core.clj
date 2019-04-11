@@ -104,7 +104,7 @@
   [{:keys [d t s op]}]
   (when (zero? op)
     (case t
-      "MESSAGE_CREATE" (let [{:keys [channel_id content]} d]
+      "MESSAGE_CREATE" (let [{:keys [channel_id author content]} d]
                          (when-let [[_ ^String maxroll] (re-find #"\!bigroll\s+(\d+)" content)]
                            (let [bound (BigInteger. maxroll)
                                  rolled (-> (BigInteger. (.bitLength bound) ^Random my-random)
@@ -130,7 +130,11 @@
                                  average-total-roll (* nrolls average-single-roll)]
                              (send-message channel_id (format "true average roll of %sd%s = `%s`" nrolls dsize average-total-roll))))
                          (when-let [[_ s-n] (re-find #"\!spin\s*(\d+)" content)]
-                           (post-message-with-file channel_id "" (format "spin%s.webm" s-n) (wheel/spin-video-bytes (Integer/parseInt s-n)))))
+                           (let [n (Integer/parseInt s-n)
+                                 response (format "<@%s>" (:id author))]
+                            (if (< 1 n 256)
+                              (post-message-with-file channel_id response (format "spin%s.webm" s-n) (wheel/spin-video-bytes n))
+                              (send-message channel_id (str "no! " response))))))
       nil)))
 
 (defn get-gateway-url
