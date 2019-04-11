@@ -20,14 +20,26 @@
   (let [bounds (.getStringBounds (.getFontMetrics g) s g)]
     (.drawString g s (int (- x (/ (.getWidth bounds) 2.0))) y)))
 
+(defn biggest-font
+  [^Graphics2D g max-width n]
+  (last
+   (for [font-size (range 8 100 4)
+         :let [_ (.setFont g (Font. "DejaVu Sans Light" Font/PLAIN font-size))
+               w (.getWidth (.getStringBounds (.getFontMetrics g) (str n) g))]
+         :when (< w max-width)]
+     (.getFont g))))
+
 (defn draw-wheel
   [^Graphics2D g ^Rectangle ins ndivs dr]
   (let [radius (quot (.getWidth ins) 2)
         tau (* 2 Math/PI)
         div-angle (/ tau ndivs)
         identity-tx (.getTransform g)
-        font-height (.getHeight (.getStringBounds (.getFontMetrics g) "1" g))
-        center-size (* 0.2 radius)]
+        
+        center-size (* 0.2 radius)
+        width-of-slice (* wheel-inner-frac radius (Math/sin div-angle))
+        _ (.setFont g (biggest-font g (* 0.7 width-of-slice) ndivs))
+        font-height (.getHeight (.getStringBounds (.getFontMetrics g) "9" g))]
 
     (.translate g (.getCenterX ins) (.getCenterY ins))
     (.scale g 1 (/ (double (.getHeight ins)) (.getWidth ins)))
@@ -39,28 +51,18 @@
     (.rotate g (/ tau -4))
     (.rotate g dr)
     (draw-circle-centered g 0 0 (int center-size))
+
     (dotimes [i ndivs]
       (.rotate g (/ div-angle 2))
-      #_(.drawLine g 0 0 (int (* wheel-inner-frac radius)) 0)
+
       (.drawLine g (int center-size) 0 (int radius) 0)
       (.rotate g (/ div-angle -2))
-      #_(.rotate g (/ tau 4))
-      (let [mtx (.getTransform g)
-            c (.getColor g)
-            width-of-slice (* wheel-inner-frac radius (Math/sin div-angle))]
+
+      (let [mtx (.getTransform g)]
         (.translate g (- radius font-height) 0.0)
         (.rotate g (/ tau 4))
-        #_(.drawString g (str i) (int 0) (int 0))
-        #_(prn 'width-of-slice width-of-slice)
-        #_(draw-string-centered g (str i) (/ width-of-slice 2) 0)
-        (draw-string-centered g (str (inc i)) 0 0)
-        #_(.translate g (/ width-of-slice 2) 0.0)
-        #_(.setColor g Color/red)
-        #_(.fillOval g -1 -1 2 2)
-        
-        (.setTransform g mtx)
-        (.setColor g c))
-      #_(.rotate g (/ tau -4))
+        (draw-string-centered g (str (inc i)) 0 0) 
+        (.setTransform g mtx))
       (.rotate g div-angle))
     (.setTransform g identity-tx)))
 
@@ -104,16 +106,16 @@
                                  0
                                  clip-width
                                  (+ pointer-font-height (int clip-height)))
-          duration 10
+          duration 6
           fps 60.0
           nframes (int (* fps duration))
           ending-frames (* fps 1.4)
-          ;; radians per second
           dtheta 10
 
           img-center-x (/ w 2.0)
           img-center-y (+ (/ h 2.0) pointer-font-height clip-height)
-          itx (.getTransform g)]
+          itx (.getTransform g)
+          offset (* 2 Math/PI (Math/random))]
 
       (videoencoder/encode-video
        img
@@ -125,6 +127,7 @@
              (.setColor g Color/white)
              (.translate g 0. pointer-font-height)
              (.translate g (quot (.getWidth wheel-image) 2) (quot (.getHeight wheel-image) 2))
+             (.rotate g offset)
              (.rotate g (Math/max 0.0
                                   (- 150.0 (* dur-frac dur-frac dtheta ))))
              (.translate g (- 0 (quot (.getWidth wheel-image) 2)) (- 0 (quot (.getHeight wheel-image) 2)))
@@ -134,3 +137,7 @@
        (+ nframes ending-frames)
        "-"))))
 
+
+(comment
+  (with-open [out (io/output-stream (io/file "spinfont.webm"))]
+    (io/copy (spin-video-bytes 10) out)))
