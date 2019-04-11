@@ -6,6 +6,8 @@
            [java.awt RenderingHints Font Color Rectangle Graphics2D]
            [java.awt.geom AffineTransform]))
 
+(def ^:dynamic *background-color* (Color. 54 57 63))
+(def ^:dynamic *foreground-color* (Color/decode "#ae81ff"))
 (def wheel-inner-frac
   "the rim of the wheel will have a width equal to (* radius (- 1 wheel-inner-frac))"
   0.8)
@@ -44,13 +46,10 @@
     (.translate g (.getCenterX ins) (.getCenterY ins))
     (.scale g 1 (/ (double (.getHeight ins)) (.getWidth ins)))
     
-    #_(.setColor g Color/white)
-    #_(draw-circle-centered g 0 0 radius)
-
-    (.setColor g  Color/white #_(Color/decode "#ae81ff") )
+    (.setColor g  *foreground-color*)
     (.rotate g (/ tau -4))
     (.rotate g dr)
-    (draw-circle-centered g 0 0 (int center-size))
+    #_(draw-circle-centered g 0 0 (int center-size))
 
     (dotimes [i ndivs]
       (.rotate g (/ div-angle 2))
@@ -80,8 +79,12 @@
             (.setRenderingHint RenderingHints/KEY_ANTIALIASING
                                RenderingHints/VALUE_ANTIALIAS_ON))]
     (.setFont g (Font. "DejaVu Sans Light" Font/PLAIN 18))
+    (.setColor g *background-color*)
+    (.fillRect g 0 0 w h)
     (draw-wheel g (Rectangle. 0 0 w h) n 0)
     wheel-image))
+
+
 
 (defn spin-video-bytes
   [n]
@@ -110,7 +113,7 @@
           fps 60.0
           nframes (int (* fps duration))
           ending-frames (* fps 1.4)
-          dtheta 10
+          dtheta (+ 10 (* 5 (Math/random)))
 
           img-center-x (/ w 2.0)
           img-center-y (+ (/ h 2.0) pointer-font-height clip-height)
@@ -122,9 +125,9 @@
        (fn [i] 
          (when (< i nframes)
            (let [dur-frac (- 1 (/ i (double nframes)))]
-             (.setColor g Color/black)
+             (.setColor g *background-color*)
              (.fillRect g 0 0 w h)
-             (.setColor g Color/white)
+             (.setColor g *foreground-color*)
              (.translate g 0. pointer-font-height)
              (.translate g (quot (.getWidth wheel-image) 2) (quot (.getHeight wheel-image) 2))
              (.rotate g offset)
@@ -141,3 +144,5 @@
 (comment
   (with-open [out (io/output-stream (io/file "spinfont.webm"))]
     (io/copy (spin-video-bytes 10) out)))
+
+
