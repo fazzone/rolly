@@ -4,6 +4,7 @@
             [clojure.edn :as edn]
             [clj-http.client :as client]
             [org.httpkit.server :as httpkit]
+            [rolly.wheel :as wheel]
             [cheshire.core :as json]
             [clojure.java.io :as io]
             [com.hypirion.clj-xchart :as chart])
@@ -127,7 +128,9 @@
                                  dsize (Integer/parseInt s_dsize)
                                  average-single-roll (/ (inc dsize) 2.0)
                                  average-total-roll (* nrolls average-single-roll)]
-                             (send-message channel_id (format "true average roll of %sd%s = `%s`" nrolls dsize average-total-roll)))))
+                             (send-message channel_id (format "true average roll of %sd%s = `%s`" nrolls dsize average-total-roll))))
+                         (when-let [[_ s-n] (re-find #"\!spin\s*(\d+)" content)]
+                           (post-message-with-file channel_id "" (format "spin%s.webm" s-n) (wheel/spin-video-bytes (Integer/parseInt s-n)))))
       nil)))
 
 (defn get-gateway-url
@@ -229,3 +232,4 @@
   (def my-client (connect #'dispatch-event))
   (deref (:running? my-client))
   ((:close my-client)))
+
