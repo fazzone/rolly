@@ -69,6 +69,20 @@
                 :content-type :json
                 :accept :json}))
 
+
+
+(defn create-reaction
+  [channel-id msg-id reaction]
+  ;;PUT/channels/{channel.id}/messages/{message.id}/reactions/{emoji}/@me
+  (client/put (doto (str "https://discordapp.com/api/channels/" channel-id "/messages/" msg-id "/reactions/" reaction "/@me")
+                prn)
+              {:headers {"Authorization" (str "Bot " (:bot-token config))}
+               :content-type :json
+               :accept :json}))
+
+
+
+
 (defn post-message-with-file
   [channel-id message name content]
   (client/post (str "https://discordapp.com/api/channels/" channel-id "/messages")
@@ -100,11 +114,16 @@
 
 (defonce all-received-messages (atom []))
 
+(defn find-emotes
+  [content]
+  (for [[match _] (re-seq #"<(.*?)>" content)]
+    match))
+
 (defn dispatch-event
   [{:keys [d t s op]}]
   (when (zero? op)
     (case t
-      "MESSAGE_CREATE" (let [{:keys [channel_id author content]} d]
+      "MESSAGE_CREATE" (let [{:keys [channel_id author content] :as message} d]
                          (when-let [[_ ^String maxroll] (re-find #"\!bigroll\s+(\d+)" content)]
                            (let [bound (BigInteger. maxroll)
                                  rolled (-> (BigInteger. (.bitLength bound) ^Random my-random)
@@ -132,10 +151,18 @@
                          (when-let [[_ s-n] (re-find #"\!spin\s*(\d+)" content)]
                            (let [n (Integer/parseInt s-n)
                                  response (format "<@%s>" (:id author))]
-                            (if (< 1 n 256)
-                              (post-message-with-file channel_id response (format "spin%s.webm" s-n) (wheel/spin-video-bytes n))
-                              (send-message channel_id (str "no! " response))))))
+                             (if (< 1 n 256)
+                               (post-message-with-file channel_id response (format "spin%s.webm" s-n) (wheel/spin-video-bytes n))
+                               (send-message channel_id (str "no! " response)))))
+                         (when (string/starts-with? content "!rollreact ")
+                           (some->> (find-emotes content)
+                                    (not-empty)
+                                    (rand-nth)
+                                    (create-reaction channel_id
+                                                     (:id message)))))
       nil)))
+
+
 
 (defn get-gateway-url
   []
