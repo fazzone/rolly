@@ -116,8 +116,8 @@
 
 (defn find-emotes
   [content]
-  (for [[match _] (re-seq #"<(.*?)>" content)]
-    match))
+  (for [[_ part] (re-seq #"<(.*?)>" content)]
+    (subs part 1)))
 
 (defn dispatch-event
   [{:keys [d t s op]}]
